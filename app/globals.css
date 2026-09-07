@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+/* ─── Custom Properties ─── */
+:root {
+  --saffron: #f97316;
+  --saffron-deep: #ea580c;
+  --saffron-light: #fed7aa;
+  --gold: #f59e0b;
+  --gold-light: #fef3c7;
+  --cream: #fffbf5;
+  --brown-dark: #1c0a00;
+  --brown-mid: #431407;
+}
+
+/* ─── Base ─── */
+html { scroll-behavior: smooth; }
+
+body {
+  background-color: var(--cream);
+  font-family: var(--font-inter), sans-serif;
+}
+
+.font-devanagari { font-family: var(--font-tiro), serif; }
+.font-display    { font-family: var(--font-playfair), serif; }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #fef3c7; }
+::-webkit-scrollbar-thumb { background: #f97316; border-radius: 3px; }
+
+/* ─── Keyframe Animations ─── */
+
+/* Floating particles */
+@keyframes float-up {
+  0%   { transform: translateY(0px) rotate(0deg); opacity: 0.7; }
+  50%  { transform: translateY(-40px) rotate(180deg); opacity: 0.4; }
+  100% { transform: translateY(-80px) rotate(360deg); opacity: 0; }
+}
+
+/* Pulse ring for map beacons */
+@keyframes beacon-pulse {
+  0%   { transform: scale(1); opacity: 0.8; }
+  70%  { transform: scale(2.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+/* Gentle shimmer on title */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Slow rotation for mandala */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Counter spin */
+@keyframes spin-slow-reverse {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+
+/* dB needle sweep */
+@keyframes needle-pulse {
+  0%, 100% { transform: rotate(-30deg); }
+  50%       { transform: rotate(30deg); }
+}
+
+/* Fade slide up */
+@keyframes fade-slide-up {
+  0%   { opacity: 0; transform: translateY(30px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Wave bars for audio visualizer */
+@keyframes wave-1 { 0%, 100% { height: 8px;  } 50% { height: 32px; } }
+@keyframes wave-2 { 0%, 100% { height: 16px; } 50% { height: 48px; } }
+@keyframes wave-3 { 0%, 100% { height: 24px; } 50% { height: 20px; } }
+@keyframes wave-4 { 0%, 100% { height: 12px; } 50% { height: 40px; } }
+@keyframes wave-5 { 0%, 100% { height: 20px; } 50% { height: 12px; } }
+
+/* Dotted border spin */
+@keyframes border-spin {
+  to { --border-angle: 360deg; }
+}
+
+/* Orange glow */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px 4px rgba(249,115,22,0.3); }
+  50%       { box-shadow: 0 0 40px 12px rgba(249,115,22,0.6); }
+}
+
+/* ─── Utility classes ─── */
+
+.animate-float-up { animation: float-up 4s ease-in infinite; }
+.animate-spin-slow { animation: spin-slow 20s linear infinite; }
+.animate-spin-slow-reverse { animation: spin-slow-reverse 30s linear infinite; }
+.animate-fade-slide-up { animation: fade-slide-up 0.7s ease forwards; }
+.animate-glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    #f97316 0%,
+    #fbbf24 30%,
+    #f97316 50%,
+    #ea580c 70%,
+    #f97316 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s linear infinite;
+}
+
+/* Mandala decorative ring */
+.mandala-ring {
+  border: 2px dashed rgba(249,115,22,0.4);
+  border-radius: 50%;
+  position: absolute;
+}
+
+/* Map beacon styles */
+.beacon-severe {
+  background: radial-gradient(circle, #ef4444 0%, rgba(239,68,68,0) 70%);
+}
+.beacon-warning {
+  background: radial-gradient(circle, #f59e0b 0%, rgba(245,158,11,0) 70%);
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: rgba(255, 251, 245, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(249, 115, 22, 0.2);
+}
+
+/* Orange gradient button */
+.btn-primary {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(249,115,22,0.4);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(249,115,22,0.5);
+}
+.btn-primary:active { transform: translateY(0); }
+
+/* Wave audio bars */
+.wave-bar {
+  width: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to top, #f97316, #fbbf24);
+  display: inline-block;
+  margin: 0 2px;
+}
+.wave-bar:nth-child(1) { animation: wave-1 0.8s ease-in-out infinite; }
+.wave-bar:nth-child(2) { animation: wave-2 0.9s ease-in-out infinite 0.1s; }
+.wave-bar:nth-child(3) { animation: wave-3 0.7s ease-in-out infinite 0.2s; }
+.wave-bar:nth-child(4) { animation: wave-4 1.0s ease-in-out infinite 0.05s; }
+.wave-bar:nth-child(5) { animation: wave-5 0.85s ease-in-out infinite 0.15s; }
+
+/* Circular progress ring */
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.5s ease;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* Section divider — lotus motif */
+.lotus-divider {
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.lotus-divider::before,
+.lotus-divider::after {
+  content: '';
+  display: inline-block;
+  width: 30%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f97316, transparent);
+  vertical-align: middle;
+  margin: 0 16px;
+}
+
+/* Severity badge */
+.badge-severe  { background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; }
+.badge-warning { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+.badge-normal  { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+
+/* Leaflet map override */
+.leaflet-container { background: #fef3c7 !important; }
+.leaflet-tile { filter: sepia(10%) saturate(90%); }
