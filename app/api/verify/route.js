@@ -18,9 +18,17 @@ import NoiseReport from '@/models/NoiseReport';
  */
 export async function POST(req) {
   try {
-    await dbConnect();
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Invalid JSON request body' },
+        { status: 400 }
+      );
+    }
 
-    const { reportId, vote, voterSessionId } = await req.json();
+    const { reportId, vote, voterSessionId } = body;
 
     if (!reportId || !vote || !voterSessionId) {
       return NextResponse.json(
@@ -124,29 +132,46 @@ export async function GET(req) {
     const lng = parseFloat(searchParams.get('lng'));
     const radius = parseInt(searchParams.get('radius')) || 15000;
 
-    const query = {
-      'verification.status': 'pending',
-    };
+    const selectFields = (
+      '_id avgDecibel peakDecibel violationDurationSeconds severity categoryTag ' +
+      'zoneCategory isNighttime festivalContext highCourtRelevant ' +
+      'audioSnippetUrl verification.status verification.confirmVotes verification.falsePositiveVotes recordedAt'
+    );
+
+    const hasGeo = !isNaN(lat) && !isNaN(lng);
+    let pendingReports = [];
 
     // Geo-filter if location is provided
-    if (!isNaN(lat) && !isNaN(lng)) {
-      query.location = {
-        $near: {
-          $geometry: { type: 'Point', coordinates: [lng, lat] },
-          $maxDistance: radius,
-        },
-      };
+    if (hasGeo) {
+      try {
+        const geoQuery = {
+          'verification.status': 'pending',
+          location: {
+            $near: {
+              $geometry: { type: 'Point', coordinates: [lng, lat] },
+              $maxDistance: radius,
+            },
+          },
+        };
+        // NOTE: MongoDB forbids .sort() when using $near because $near already orders by distance.
+        pendingReports = await NoiseReport.find(geoQuery)
+          .select(selectFields)
+          .limit(20)
+          .lean();
+      } catch (geoErr) {
+        console.warn('[GET /api/verify] Geo query failed, falling back to statewide:', geoErr.message);
+      }
     }
 
-    const pendingReports = await NoiseReport.find(query)
-      .select(
-        '_id avgDecibel peakDecibel violationDurationSeconds severity categoryTag ' +
-        'zoneCategory isNighttime festivalContext highCourtRelevant ' +
-        'audioSnippetUrl verification.confirmVotes verification.falsePositiveVotes recordedAt'
-      )
-      .sort({ peakDecibel: -1, recordedAt: 1 }) // Highest peak first, oldest first
-      .limit(20)
-      .lean();
+    // Fallback: If no nearby reports exist within radius or no coordinates provided,
+    // fetch pending reports statewide sorted by highest peak and date
+    if (!pendingReports || pendingReports.length === 0) {
+      pendingReports = await NoiseReport.find({ 'verification.status': 'pending' })
+        .select(selectFields)
+        .sort({ peakDecibel: -1, recordedAt: -1 })
+        .limit(20)
+        .lean();
+    }
 
     return NextResponse.json({
       success: true,

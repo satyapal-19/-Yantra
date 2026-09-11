@@ -20,8 +20,8 @@ function makePopupHtml(beacon) {
   const timeStr = new Date(beacon.recordedAt).toLocaleString('mr-IN', {
     dateStyle: 'short', timeStyle: 'short',
   });
-  const cat = beacon.categoryTag === 'dj_system' ? '🎛️ DJ System'
-    : beacon.categoryTag === 'dhol_tasha' ? '🥁 Dhol-Tasha' : '❓ अनिश्चित';
+  const cat = beacon.categoryTag === 'dj_system' ? '🔊 तीव्र ध्वनी प्रणाली'
+    : beacon.categoryTag === 'dhol_tasha' ? '🥁 वाद्य ध्वनी' : '❓ अनिश्चित';
   const verified = beacon.verification?.status === 'verified'
     ? '<span style="color:#16a34a;font-weight:bold">✅ समुदायाने पुष्टी केली</span>'
     : beacon.verification?.status === 'rejected'

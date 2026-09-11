@@ -23,7 +23,7 @@ const inter = Inter({
 export const metadata = {
   title: 'बापट यंत्र — Maharashtra Noise Pollution Reporter',
   description:
-    'महाराष्ट्रातील ध्वनी प्रदूषणाची नोंद करा. DJ आणि ढोल-ताशाचे उल्लंघन नकाशावर दाखवा.',
+    'महाराष्ट्रातील ध्वनी प्रदूषणाची नोंद करा. ध्वनी मर्यादेचे उल्लंघन नकाशावर दाखवा.',
   manifest: '/manifest.json',
 };
 

@@ -18,7 +18,7 @@ const MapView = dynamic(() => import('@/components/MapView'), { ssr: false, load
 
 // ── Marathi content ───────────────────────────────────────────────────────────
 const MARATHI_QUOTES = [
-  { text: 'डीजेचा आवाज, आजाराला निमंत्रण.', sub: 'DJ Noise Invites Illness' },
+  { text: 'तीव्र कर्कश आवाज, आजाराला निमंत्रण.', sub: 'Loud Noise Invites Illness' },
   { text: 'शांततेचा अधिकार हा आपला मूलभूत हक्क आहे.', sub: 'Peace is Your Fundamental Right' },
   { text: 'अवाजाचे उल्लंघन, कायद्याचे उल्लंघन.', sub: 'Sound Violation is Law Violation' },
   { text: 'आपल्या महाराष्ट्राला शांत करूया.', sub: "Let's Make Maharashtra Peaceful" },
@@ -536,7 +536,7 @@ function NoiseRecorder({ onReportSubmitted }) {
                 <p className="font-devanagari text-2xl text-orange-700 font-bold">
                   ६० सेकंद ध्वनी तपासणी
                 </p>
-                <p className="text-stone-400 text-sm mt-1">60-second noise analysis with DJ/Dhol detection</p>
+                <p className="text-stone-400 text-sm mt-1">60-second acoustic noise violation analysis</p>
               </div>
               <button onClick={startRecording}
                 className="btn-primary text-white font-devanagari text-xl px-10 py-4 rounded-full font-bold tracking-wide">
@@ -592,7 +592,7 @@ function NoiseRecorder({ onReportSubmitted }) {
                 <p className="text-xs text-stone-400 mb-2 text-center">आवाज आवृत्ती विश्लेषण — Frequency Band Analysis</p>
                 <div className="flex items-end gap-2 h-14 justify-center">
                   {[
-                    { label: 'Sub Bass\n20–120Hz', value: bandLevels.subBass, note: 'DJ/Dhol' },
+                    { label: 'Sub Bass\n20–120Hz', value: bandLevels.subBass, note: 'Low Bass' },
                     { label: 'Bass\n120–500Hz', value: bandLevels.bass, note: 'Harmonics' },
                     { label: 'Mid\n500Hz–2kHz', value: bandLevels.mid, note: 'Speech' },
                     { label: 'High\n2–8kHz', value: bandLevels.high, note: 'Treble' },
@@ -612,7 +612,7 @@ function NoiseRecorder({ onReportSubmitted }) {
                 {fundamentalHz && (
                   <p className="text-center text-xs text-orange-600 mt-2">
                     🎵 मूल आवृत्ती: <strong>{fundamentalHz} Hz</strong>
-                    {fundamentalHz > 60 && fundamentalHz < 200 ? ' — DJ/Dhol range' : ''}
+                    {fundamentalHz > 60 && fundamentalHz < 200 ? ' — Low Bass Range' : ''}
                   </p>
                 )}
               </div>
@@ -655,8 +655,8 @@ function NoiseRecorder({ onReportSubmitted }) {
               {/* Category */}
               <div className="text-center text-sm text-stone-500">
                 आवाज प्रकार: <span className="font-bold text-orange-700">
-                  {category === 'dj_system' ? '🎛️ DJ System' :
-                   category === 'dhol_tasha' ? '🥁 Dhol-Tasha' : '❓ ओळखत आहे...'}
+                  {category === 'dj_system' ? '🔊 तीव्र ध्वनी प्रणाली' :
+                   category === 'dhol_tasha' ? '🥁 वाद्य ध्वनी' : '❓ ओळखत आहे...'}
                 </span>
                 <span className="text-xs text-stone-300 ml-2">(A-weighted Leq dB(A))</span>
               </div>
@@ -716,8 +716,8 @@ function NoiseRecorder({ onReportSubmitted }) {
                     <div className="flex justify-between"><span className="text-stone-500">उल्लंघन कालावधी</span><span className="font-bold text-orange-700">{result.vSec}s / 60s</span></div>
                     <div className="flex justify-between"><span className="text-stone-500">श्रेणी</span>
                       <span className="font-bold text-orange-700">
-                        {result.finalCategory === 'dj_system' ? '🎛️ DJ System' :
-                         result.finalCategory === 'dhol_tasha' ? '🥁 Dhol-Tasha' : '❓ अनिश्चित'}
+                        {result.finalCategory === 'dj_system' ? '🔊 तीव्र ध्वनी प्रणाली' :
+                         result.finalCategory === 'dhol_tasha' ? '🥁 वाद्य ध्वनी' : '❓ अनिश्चित'}
                       </span>
                     </div>
                     {result.context?.festivalContext && (
@@ -759,24 +759,25 @@ function VerifyFeed() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [voting, setVoting] = useState({});
+  const [voteFeedback, setVoteFeedback] = useState({});
   const [played, setPlayed] = useState({});
   const [locationError, setLocationError] = useState(false);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
     try {
-      let url = '/api/verify?radius=15000';
+      let url = '/api/verify?radius=25000';
       if (navigator.geolocation) {
         try {
           const pos = await new Promise((res, rej) =>
             navigator.geolocation.getCurrentPosition(res, rej, { timeout: 4000 })
           );
-          url = `/api/verify?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&radius=15000`;
+          url = `/api/verify?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&radius=25000`;
         } catch { setLocationError(true); }
       }
       const r = await fetch(url);
       const d = await r.json();
-      if (d.success) setReports(d.reports);
+      if (d.success) setReports(d.reports || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
@@ -785,18 +786,48 @@ function VerifyFeed() {
 
   const vote = async (reportId, v) => {
     setVoting(prev => ({ ...prev, [reportId]: v }));
-    const res = await fetch('/api/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reportId, vote: v, voterSessionId: getOrCreateSessionId() }),
-    });
-    const d = await res.json();
-    if (d.success) {
-      setReports(prev => prev.map(r =>
-        r._id === reportId ? { ...r, verification: { ...r.verification, status: d.newStatus } } : r
-      ));
+    setVoteFeedback(prev => ({ ...prev, [reportId]: null }));
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId, vote: v, voterSessionId: getOrCreateSessionId() }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setReports(prev => prev.map(r =>
+          r._id === reportId ? {
+            ...r,
+            verification: {
+              ...r.verification,
+              status: d.newStatus,
+              confirmVotes: d.confirmVotes,
+              falsePositiveVotes: d.falsePositiveVotes,
+            }
+          } : r
+        ));
+        setVoteFeedback(prev => ({
+          ...prev,
+          [reportId]: { type: 'success', msg: 'आपले मत यशस्वीरित्या नोंदवले गेले आहे! (Vote recorded)' }
+        }));
+      } else {
+        const errorMsg = d.error?.includes('already voted') || d.error?.includes('own submission')
+          ? 'तुम्ही आधीच मत नोंदवले आहे किंवा हा तुमचा स्वतःचा अहवाल आहे. (Already voted or own report)'
+          : (d.error || 'मत नोंदवण्यात त्रुटी आली. कृपया पुन्हा प्रयत्न करा.');
+        setVoteFeedback(prev => ({
+          ...prev,
+          [reportId]: { type: 'error', msg: errorMsg }
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+      setVoteFeedback(prev => ({
+        ...prev,
+        [reportId]: { type: 'error', msg: 'इंटरनेट किंवा सर्व्हर त्रुटी. कृपया पुन्हा प्रयत्न करा.' }
+      }));
+    } finally {
+      setTimeout(() => setVoting(prev => { const n = {...prev}; delete n[reportId]; return n; }), 1000);
     }
-    setTimeout(() => setVoting(prev => { const n = {...prev}; delete n[reportId]; return n; }), 1000);
   };
 
   return (
@@ -808,7 +839,7 @@ function VerifyFeed() {
           </div>
           <p className="text-stone-500 font-display italic">Community Verification — Listen & Vote</p>
           <p className="font-devanagari text-sm text-orange-600 mt-2">
-            खालील ऑडिओ ऐका आणि DJ किंवा ढोल आवाज आहे का ते सांगा
+            खालील ऑडिओ ऐका आणि ध्वनी मर्यादेचे उल्लंघन आहे का ते सांगा
           </p>
         </div>
 
@@ -840,7 +871,7 @@ function VerifyFeed() {
           {reports.map((report, i) => {
             const sev = SEVERITY_LABELS[report.severity] || SEVERITY_LABELS.normal;
             const isVoting = voting[report._id];
-            const resolved = report.verification?.status !== 'pending';
+            const resolved = report.verification?.status && report.verification?.status !== 'pending';
             return (
               <div key={report._id}
                 className="glass-card rounded-2xl p-5 border border-orange-200 shadow-md"
@@ -854,7 +885,7 @@ function VerifyFeed() {
                     </span>
                     {report.categoryTag !== 'unspecified' && (
                       <span className="inline-block text-xs px-3 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
-                        {report.categoryTag === 'dj_system' ? '🎛️ DJ System' : '🥁 Dhol-Tasha'}
+                        {report.categoryTag === 'dj_system' ? '🔊 तीव्र ध्वनी प्रणाली' : '🥁 वाद्य ध्वनी'}
                       </span>
                     )}
                   </div>
@@ -908,13 +939,24 @@ function VerifyFeed() {
                     <button onClick={() => vote(report._id, 'confirm')}
                       disabled={!!isVoting}
                       className="flex-1 bg-red-500 hover:bg-red-600 text-white font-devanagari font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isVoting === 'confirm' ? '✓ मत नोंदवले' : <><span>🔴</span> होय, उल्लंघन आहे</>}
+                      {isVoting === 'confirm' ? '✓ मत नोंदवत आहे...' : <><span>🔴</span> होय, उल्लंघन आहे</>}
                     </button>
                     <button onClick={() => vote(report._id, 'false_positive')}
                       disabled={!!isVoting}
                       className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-devanagari font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isVoting === 'false_positive' ? '✓ नोंदवले' : <><span>✅</span> नाही, सामान्य आवाज</>}
+                      {isVoting === 'false_positive' ? '✓ नोंदवत आहे...' : <><span>✅</span> नाही, सामान्य आवाज</>}
                     </button>
+                  </div>
+                )}
+
+                {/* Vote Feedback Alert */}
+                {voteFeedback[report._id] && (
+                  <div className={`mt-3 p-2.5 rounded-xl text-xs font-devanagari text-center font-medium ${
+                    voteFeedback[report._id].type === 'success'
+                      ? 'bg-green-50 text-green-800 border border-green-200'
+                      : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}>
+                    {voteFeedback[report._id].msg}
                   </div>
                 )}
 
@@ -1035,7 +1077,7 @@ export default function Home() {
           <div className="my-6 flex items-center justify-center gap-4 text-orange-300">
             <div className="flex-1 h-px bg-gradient-to-r from-transparent to-orange-300" />
             <span className="font-devanagari text-3xl text-orange-500 opacity-60">॥</span>
-            <span className="text-sm font-devanagari text-orange-600 opacity-80">DJ · ढोल · ताशा उल्लंघन</span>
+            <span className="text-sm font-devanagari text-orange-600 opacity-80">तीव्र ध्वनी · ध्वनी मर्यादा उल्लंघन</span>
             <span className="font-devanagari text-3xl text-orange-500 opacity-60">॥</span>
             <div className="flex-1 h-px bg-gradient-to-l from-transparent to-orange-300" />
           </div>
@@ -1044,7 +1086,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-10">
             {[
               { step: '१', icon: '🎙️', title: '६० सेकंद ऐका', sub: 'Hold your phone toward the noise source' },
-              { step: '२', icon: '📊', title: 'आपोआप विश्लेषण', sub: 'DJ/Dhol signature detected via frequency analysis' },
+              { step: '२', icon: '📊', title: 'आपोआप विश्लेषण', sub: 'Acoustic violation detected via frequency analysis' },
               { step: '३', icon: '📍', title: 'नकाशावर नोंद', sub: 'Location obfuscated — your identity protected' },
             ].map(s => (
               <div key={s.step} className="glass-card rounded-2xl p-5 border border-orange-200 hover:border-orange-400 transition-all hover:-translate-y-1">
@@ -1187,7 +1229,7 @@ export default function Home() {
             <span>🆓 Free & Open Source</span>
           </div>
           <p className="text-xs text-stone-600">
-            Built for Maharashtra Citizens · DJ & Dhol-Tasha Violation Reporting · Data auto-deleted after 14 days
+            Built for Maharashtra Citizens · Sound & Noise Violation Reporting · Data auto-deleted after 14 days
           </p>
         </div>
       </footer>
