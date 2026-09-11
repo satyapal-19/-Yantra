@@ -1,4 +1,5 @@
 import { Tiro_Devanagari_Hindi, Playfair_Display, Inter } from 'next/font/google';
+import 'leaflet/dist/leaflet.css';
 import './globals.css';
 
 const tiro = Tiro_Devanagari_Hindi({

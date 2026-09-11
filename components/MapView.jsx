@@ -71,8 +71,9 @@ export default function MapView({ onStatsUpdate }) {
 
     try {
       const res = await fetch(url);
+      if (!res.ok) return;
       const data = await res.json();
-      if (!data.success) return;
+      if (!data || !data.success || !Array.isArray(data.beacons)) return;
 
       // Clear old markers
       markersRef.current.forEach(m => m.remove());
@@ -142,73 +143,82 @@ export default function MapView({ onStatsUpdate }) {
 
 
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (!mapRef.current) return;
+    if (mapInstanceRef.current) return;
 
     let cancelled = false;
-    let mapInstance = null;
 
-    // Dynamically import Leaflet + CSS only on the client (avoids SSR/bundler issues)
     async function initMap() {
-      const L = (await import('leaflet')).default;
-      leafletRef.current = L;  // Store for use in loadBeacons
+      try {
+        const leafletMod = await import('leaflet');
+        const L = leafletMod.default || leafletMod;
+        leafletRef.current = L;
 
-      // Inject Leaflet CSS dynamically so it doesn't go through SSR
-      if (!document.getElementById('leaflet-css')) {
-        const link = document.createElement('link');
-        link.id = 'leaflet-css';
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-        link.crossOrigin = '';
-        document.head.appendChild(link);
-      }
+        if (cancelled || !mapRef.current) return;
 
-      // Fix default icon paths broken by Webpack
-      delete L.Icon.Default.prototype._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
+        // Reset any existing container id if re-mounting
+        if (mapRef.current._leaflet_id) {
+          delete mapRef.current._leaflet_id;
+        }
 
-      // Abort if cleanup already ran (StrictMode double-invoke guard)
-      if (cancelled || !mapRef.current || mapInstanceRef.current) return;
+        // Fix default icon paths
+        if (L.Icon?.Default?.prototype) {
+          delete L.Icon.Default.prototype._getIconUrl;
+          L.Icon.Default.mergeOptions({
+            iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+            iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+            shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+          });
+        }
 
-      mapInstance = L.map(mapRef.current, {
-        center: MAHARASHTRA_CENTER,
-        zoom: DEFAULT_ZOOM,
-        zoomControl: true,
-      });
-      mapInstanceRef.current = mapInstance;
+        const mapInstance = L.map(mapRef.current, {
+          center: MAHARASHTRA_CENTER,
+          zoom: DEFAULT_ZOOM,
+          zoomControl: true,
+          scrollWheelZoom: true,
+        });
+        mapInstanceRef.current = mapInstance;
 
-      // OpenStreetMap tiles (free, no API key)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-        maxZoom: 19,
-      }).addTo(mapInstance);
+        // OpenStreetMap tiles
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+          maxZoom: 19,
+        }).addTo(mapInstance);
 
-      mapInstance.on('moveend', loadBeacons);
+        // Ensure container dimensions are recognized immediately
+        setTimeout(() => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.invalidateSize();
+          }
+        }, 200);
 
-      // Center on user location if available
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.setView([pos.coords.latitude, pos.coords.longitude], 13);
-            }
-            loadBeacons();
-          },
-          () => loadBeacons()
-        );
-      } else {
+        mapInstance.on('moveend', loadBeacons);
+
+        // Load beacons immediately for Maharashtra center
         loadBeacons();
+
+        // Optional geolocation with 4s timeout (does not block initial render)
+        if (typeof navigator !== 'undefined' && navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              if (mapInstanceRef.current) {
+                mapInstanceRef.current.setView([pos.coords.latitude, pos.coords.longitude], 13);
+                loadBeacons();
+              }
+            },
+            () => { /* ignore or keep default center */ },
+            { timeout: 4000, maximumAge: 60000 }
+          );
+        }
+      } catch (err) {
+        console.error('[MapView] Failed to initialize Leaflet:', err);
       }
     }
 
-    initMap().catch(console.error);
+    initMap();
 
     return () => {
-      cancelled = true;  // Prevent async initMap from proceeding after cleanup
+      cancelled = true;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;

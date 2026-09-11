@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import { getLegalLimit, classifySeverity, SEVERITY_LABELS, ZONE_LABELS } from '@/utils/noiseThresholds';
 import { classifyNoiseProbability, aggregateCategory } from '@/utils/frequencyClassifier';
@@ -205,7 +205,7 @@ function WaveVisualizer({ active }) {
 }
 
 // ── Noise Recorder Component ──────────────────────────────────────────────────
-function NoiseRecorder({ onReportSubmitted }) {
+const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, ref) {
   const [phase, setPhase] = useState('idle');
   const [zone, setZone] = useState('residential');
   const [elapsed, setElapsed] = useState(0);
@@ -233,147 +233,17 @@ function NoiseRecorder({ onReportSubmitted }) {
   const chunksRef         = useRef([]);
   const secondReadingsRef = useRef([]);
   const violationSecondsRef = useRef(0);    // Ref for async access in finishRecording
+  const streamRef         = useRef(null);   // Active media stream track manager
 
   const limit = getLegalLimit(zone, new Date());
 
-  const startRecording = useCallback(async () => {
-    setPhase('requesting');
-    try {
-      // ── Guard: mediaDevices only works on localhost or HTTPS ────────────────
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(
-          'मायक्रोफोन उपलब्ध नाही. कृपया localhost वर उघडा किंवा HTTPS वापरा.\n' +
-          '(Microphone blocked: open via localhost or HTTPS, not via network IP)'
-        );
-      }
-
-      // ── 1. Request raw microphone stream ────────────────────────────────────
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: 1,
-          sampleRate: 44100,
-        },
-      });
-
-      // Check if constraints were honored
-      const track = stream.getAudioTracks()[0];
-      const settings = track.getSettings();
-      if (settings.autoGainControl !== false || settings.noiseSuppression !== false) {
-        setBrowserWarning(true);
-      }
-
-      // ── 2. Build AudioContext + DecibelMeter ────────────────────────────────
-      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({
-        sampleRate: 44100,
-      });
-
-      // Resume context (required after user gesture on some browsers)
-      if (audioCtxRef.current.state === 'suspended') {
-        await audioCtxRef.current.resume();
-      }
-
-      // Create meter with 8192-point FFT for high frequency resolution
-      // (~5.4 Hz per bin at 44100 Hz sample rate)
-      const calibration = getCalibrationOffset();
-      meterRef.current = new DecibelMeter(audioCtxRef.current, 8192, calibration);
-
-      const source = audioCtxRef.current.createMediaStreamSource(stream);
-      meterRef.current.connect(source);
-
-      // ── 3. Setup MediaRecorder ──────────────────────────────────────────────
-      chunksRef.current = [];
-      secondReadingsRef.current = [];
-      violationSecondsRef.current = 0;
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus' : 'audio/webm';
-      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      mediaRecorderRef.current.start(1000);
-
-      // ── 4. Reset display state ──────────────────────────────────────────────
-      setPhase('recording');
-      setElapsed(0);
-      setLeqDb(0);
-      setInstantDb(0);
-      setViolationSeconds(0);
-      setSeverity('normal');
-      setNoiseFloor(null);
-      setStats({ L10: 0, L50: 0, L90: 0, peak: 0 });
-      setBandLevels({ subBass: 0, bass: 0, mid: 0, high: 0 });
-
-      // ── 5. Fast display update (250ms) — smooth UI animation ───────────────
-      // This only updates the visual display, does NOT affect Leq computation
-      fastIntervalRef.current = setInterval(() => {
-        if (!meterRef.current) return;
-        const idb = Math.round(meterRef.current.getInstantaneousDB());
-        setInstantDb(idb);
-        const bands = meterRef.current.getBandLevels();
-        setBandLevels(bands);
-      }, 250);
-
-      // ── 6. Main 1-second measurement tick ──────────────────────────────────
-      intervalRef.current = setInterval(() => {
-        if (!meterRef.current) return;
-
-        // Take a formal Leq sample (A-weighted)
-        const reading = meterRef.current.sample();
-        const currentLeq = reading.leq;
-        const currentStats = meterRef.current.getStatistics();
-
-        // FFT-based classification
-        const cls = classifyNoiseProbability(
-          meterRef.current.node,
-          audioCtxRef.current
-        );
-        secondReadingsRef.current.push(cls);
-
-        // Update noise floor display
-        if (reading.noiseFloor !== null) setNoiseFloor(reading.noiseFloor);
-
-        // Update display
-        setLeqDb(currentLeq);
-        setStats(currentStats);
-        if (cls.fundamentalHz > 0) setFundamentalHz(Math.round(cls.fundamentalHz));
-
-        // Violation check (against Leq — legally correct metric)
-        setViolationSeconds(prev => {
-          const isViolation = currentLeq > limit;
-          const newCount = isViolation ? prev + 1 : prev;
-          violationSecondsRef.current = newCount;
-          setSeverity(classifySeverity(newCount));
-          return newCount;
-        });
-
-        // Elapsed counter
-        setElapsed(prev => {
-          const next = prev + 1;
-          if (next >= 60) {
-            clearInterval(intervalRef.current);
-            clearInterval(fastIntervalRef.current);
-            finishRecording(stream);
-          }
-          return next;
-        });
-      }, 1000);
-
-    } catch (err) {
-      console.error('[NoiseRecorder]', err);
-      setPhase('error');
-      setResult({ message: err.name === 'NotAllowedError'
-        ? 'मायक्रोफोन परवानगी नाकारली. कृपया ब्राउझरमध्ये अनुमती द्या.'
-        : `त्रुटी: ${err.message}` });
-    }
-  }, [zone, limit]);
-
   const finishRecording = useCallback((stream) => {
-    if (mediaRecorderRef.current?.state !== 'inactive') {
-      mediaRecorderRef.current?.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping MediaRecorder:', e);
+      }
     }
 
     setTimeout(async () => {
@@ -406,9 +276,11 @@ function NoiseRecorder({ onReportSubmitted }) {
         let audioUrl = null;
         if (chunksRef.current && chunksRef.current.length > 0) {
           try {
-            const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+            const recordedType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+            const ext = recordedType.includes('mp4') ? 'mp4' : recordedType.includes('aac') ? 'aac' : 'webm';
+            const blob = new Blob(chunksRef.current, { type: recordedType });
             const fd = new FormData();
-            fd.append('audio', blob, 'clip.webm');
+            fd.append('audio', blob, `clip.${ext}`);
             const upRes = await fetch('/api/upload-audio', { method: 'POST', body: fd });
             if (upRes.ok) {
               const j = await upRes.json();
@@ -467,9 +339,221 @@ function NoiseRecorder({ onReportSubmitted }) {
         setResult({ message: 'डेटाबेसमध्ये जतन करताना त्रुटी आली.' });
         setPhase('error');
       }
-      if (stream) stream.getTracks().forEach(t => t.stop());
+
+      if (stream) {
+        try {
+          stream.getTracks().forEach(t => t.stop());
+        } catch (e) {}
+      }
+      if (streamRef.current) {
+        try {
+          streamRef.current.getTracks().forEach(t => t.stop());
+        } catch (e) {}
+        streamRef.current = null;
+      }
     }, 600);
   }, [zone, onReportSubmitted]);
+
+  const startRecording = useCallback(async () => {
+    setPhase('requesting');
+    try {
+      // ── Guard: mediaDevices only works on localhost or HTTPS ────────────────
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          'मायक्रोफोन उपलब्ध नाही. कृपया सुरक्षित HTTPS (Secure connection) वापरा किंवा आधुनिक ब्राउझरमध्ये उघडा.'
+        );
+      }
+
+      // ── 1. Request raw microphone stream with mobile-safe progressive fallback ──
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: { ideal: false },
+            noiseSuppression: { ideal: false },
+            autoGainControl: { ideal: false },
+          },
+        });
+      } catch (e1) {
+        console.warn('[NoiseRecorder] Ideal constraints failed, falling back to basic audio:', e1);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (e2) {
+          throw e2;
+        }
+      }
+
+      streamRef.current = stream;
+
+      // Check if constraints were honored
+      const track = stream.getAudioTracks()[0];
+      if (track && track.getSettings) {
+        const settings = track.getSettings();
+        if (settings.autoGainControl || settings.noiseSuppression) {
+          setBrowserWarning(true);
+        }
+      }
+
+      // ── 2. Build AudioContext + DecibelMeter ────────────────────────────────
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) {
+        throw new Error('Web Audio API समर्थित नाही (Web Audio API not supported on this browser).');
+      }
+
+      // Do NOT pass sampleRate constraint to AudioContext constructor - allow browser/hardware default
+      audioCtxRef.current = new AudioCtxClass();
+
+      // Resume context (essential after user gesture on mobile browsers)
+      if (audioCtxRef.current.state === 'suspended') {
+        await audioCtxRef.current.resume();
+      }
+
+      // Create meter with 8192-point FFT (dynamically adapts to audioCtx.sampleRate)
+      const calibration = getCalibrationOffset();
+      meterRef.current = new DecibelMeter(audioCtxRef.current, 8192, calibration);
+
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
+      meterRef.current.connect(source);
+
+      // ── 3. Setup MediaRecorder with cross-browser MIME format detection ───────
+      chunksRef.current = [];
+      secondReadingsRef.current = [];
+      violationSecondsRef.current = 0;
+
+      let supportedMime = '';
+      const candidateTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/aac',
+        'audio/ogg;codecs=opus',
+      ];
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+        for (const type of candidateTypes) {
+          if (MediaRecorder.isTypeSupported(type)) {
+            supportedMime = type;
+            break;
+          }
+        }
+      }
+
+      try {
+        if (typeof MediaRecorder !== 'undefined') {
+          const recOptions = supportedMime ? { mimeType: supportedMime } : undefined;
+          mediaRecorderRef.current = new MediaRecorder(stream, recOptions);
+          mediaRecorderRef.current.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+          };
+          mediaRecorderRef.current.start(1000);
+        }
+      } catch (recErr) {
+        console.warn('[NoiseRecorder] MediaRecorder initialization warning:', recErr);
+        mediaRecorderRef.current = null;
+      }
+
+      // ── 4. Reset display state ──────────────────────────────────────────────
+      setPhase('recording');
+      setElapsed(0);
+      setLeqDb(0);
+      setInstantDb(0);
+      setViolationSeconds(0);
+      setSeverity('normal');
+      setNoiseFloor(null);
+      setStats({ L10: 0, L50: 0, L90: 0, peak: 0 });
+      setBandLevels({ subBass: 0, bass: 0, mid: 0, high: 0 });
+
+      // ── 5. Fast display update (250ms) — smooth UI animation ───────────────
+      fastIntervalRef.current = setInterval(() => {
+        if (!meterRef.current) return;
+        const idb = Math.round(meterRef.current.getInstantaneousDB());
+        setInstantDb(idb);
+        const bands = meterRef.current.getBandLevels();
+        setBandLevels(bands);
+      }, 250);
+
+      // ── 6. Main 1-second measurement tick ──────────────────────────────────
+      intervalRef.current = setInterval(() => {
+        if (!meterRef.current) return;
+
+        // Take a formal Leq sample (A-weighted)
+        const reading = meterRef.current.sample();
+        const currentLeq = reading.leq;
+        const currentStats = meterRef.current.getStatistics();
+
+        // FFT-based classification
+        const cls = classifyNoiseProbability(
+          meterRef.current.node,
+          audioCtxRef.current
+        );
+        secondReadingsRef.current.push(cls);
+
+        // Update noise floor display
+        if (reading.noiseFloor !== null) setNoiseFloor(reading.noiseFloor);
+
+        // Update display
+        setLeqDb(currentLeq);
+        setStats(currentStats);
+        if (cls.fundamentalHz > 0) setFundamentalHz(Math.round(cls.fundamentalHz));
+
+        // Violation check (against Leq — legally correct metric)
+        setViolationSeconds(prev => {
+          const isViolation = currentLeq > limit;
+          const newCount = isViolation ? prev + 1 : prev;
+          violationSecondsRef.current = newCount;
+          setSeverity(classifySeverity(newCount));
+          return newCount;
+        });
+
+        // Elapsed counter
+        setElapsed(prev => {
+          const next = prev + 1;
+          if (next >= 60) {
+            clearInterval(intervalRef.current);
+            clearInterval(fastIntervalRef.current);
+            finishRecording(stream);
+          }
+          return next;
+        });
+      }, 1000);
+
+    } catch (err) {
+      console.error('[NoiseRecorder]', err);
+      setPhase('error');
+      let friendlyMsg = 'काहीतरी त्रुटी आली. कृपया पुन्हा प्रयत्न करा.';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        friendlyMsg = 'मायक्रोफोन परवानगी नाकारली गेली. कृपया ब्राउझरमध्ये मायक्रोफोनची परवानगी द्या.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        friendlyMsg = 'मायक्रोफोन डिव्हाइस सापडले नाही.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        friendlyMsg = 'मायक्रोफोन इतर कोणत्याही अॅपने वापरत आहे.';
+      } else if (err.message) {
+        friendlyMsg = `त्रुटी: ${err.message}`;
+      }
+      setResult({ message: friendlyMsg });
+    }
+  }, [zone, limit, finishRecording]);
+
+  useImperativeHandle(ref, () => ({
+    start: () => {
+      if (phase === 'idle') {
+        startRecording();
+      }
+    },
+  }), [phase, startRecording]);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
+      if (meterRef.current) { meterRef.current.destroy(); meterRef.current = null; }
+      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        try { audioCtxRef.current.close(); } catch (e) {}
+      }
+      if (streamRef.current) {
+        try { streamRef.current.getTracks().forEach(t => t.stop()); } catch (e) {}
+      }
+    };
+  }, []);
 
   const reset = () => {
     setPhase('idle');
@@ -486,6 +570,12 @@ function NoiseRecorder({ onReportSubmitted }) {
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
     if (meterRef.current) { meterRef.current.destroy(); meterRef.current = null; }
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      } catch (e) {}
+      streamRef.current = null;
+    }
   };
 
 
@@ -675,6 +765,21 @@ function NoiseRecorder({ onReportSubmitted }) {
                 </span>
                 <span className="text-xs text-stone-300 ml-2">(A-weighted Leq dB(A))</span>
               </div>
+
+              {/* Early finish button */}
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (intervalRef.current) clearInterval(intervalRef.current);
+                    if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
+                    finishRecording(streamRef.current);
+                  }}
+                  disabled={elapsed < 5}
+                  className="px-6 py-2 rounded-full border-2 border-orange-300 text-orange-700 bg-white hover:bg-orange-50 font-devanagari text-sm font-semibold transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                  {elapsed < 5 ? `किमान ५ सेकंद नोंद आवश्यक (${5 - elapsed}s)...` : '🛑 थांबवा आणि सबमिट करा (Finish & Submit)'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -767,7 +872,7 @@ function NoiseRecorder({ onReportSubmitted }) {
       </div>
     </div>
   );
-}
+});
 
 // ── Stats Bar ─────────────────────────────────────────────────────────────────
 function StatsBar({ stats }) {
@@ -797,11 +902,19 @@ function StatsBar({ stats }) {
 export default function Home() {
   const [mapKey, setMapKey] = useState(0);
   const [stats, setStats] = useState({ severe: 0, warning: 0, verified: 0, total: 0 });
+  const recorderRef = useRef(null);
 
   const refreshMap = useCallback(() => setMapKey(k => k + 1), []);
 
   // Scroll helpers
   const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+
+  const handleStartRecording = useCallback(() => {
+    scrollTo('record');
+    if (recorderRef.current && recorderRef.current.start) {
+      recorderRef.current.start();
+    }
+  }, []);
 
   return (
     <div className="min-h-screen">
@@ -824,7 +937,7 @@ export default function Home() {
             <button onClick={() => scrollTo('record')} className="text-stone-600 hover:text-orange-600 transition-colors">नोंद करा</button>
             <a href="/admin" className="text-stone-500 hover:text-orange-600 transition-colors text-xs border border-orange-200 px-3 py-1 rounded-full">🛡️ Admin</a>
           </div>
-          <button onClick={() => scrollTo('record')}
+          <button onClick={handleStartRecording}
             className="btn-primary text-white font-devanagari px-4 py-2 rounded-full text-sm font-semibold">
             🎙️ आवाज नोंदवा
           </button>
@@ -889,7 +1002,7 @@ export default function Home() {
 
           {/* CTA buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button onClick={() => scrollTo('record')}
+            <button onClick={handleStartRecording}
               className="btn-primary text-white font-devanagari text-xl px-10 py-4 rounded-full font-bold shadow-xl w-full sm:w-auto">
               🔴 आवाज नोंदवा — Record Now
             </button>
@@ -940,7 +1053,7 @@ export default function Home() {
       </section>
 
       {/* ── RECORDER SECTION ── */}
-      <NoiseRecorder onReportSubmitted={refreshMap} />
+      <NoiseRecorder ref={recorderRef} onReportSubmitted={refreshMap} />
 
       {/* ── INFO SECTION ── */}
       <section className="py-16 px-4 bg-gradient-to-b from-amber-100 to-orange-50">
