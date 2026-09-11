@@ -244,8 +244,10 @@ export default function AdminPage() {
                         <div className="text-[10px] text-stone-500">Peak dB</div>
                       </div>
                       <div className="bg-stone-950 rounded-xl p-2 border border-stone-800/80">
-                        <div className="text-base font-bold text-stone-300 font-mono">{r.violationDurationSeconds}s</div>
-                        <div className="text-[10px] text-stone-500">Duration</div>
+                        <div className="text-base font-bold text-stone-300 font-mono">
+                          {r.violationDurationSeconds}s <span className="text-[10px] text-stone-500 font-normal">/ {r.clipDurationSeconds || 60}s</span>
+                        </div>
+                        <div className="text-[10px] text-stone-500">Violation / Clip</div>
                       </div>
                     </div>
 
@@ -276,19 +278,34 @@ export default function AdminPage() {
                       <div className="flex items-center justify-between text-xs mb-1">
                         <span className="text-stone-400 font-medium">🎧 Recorded Audio Proof:</span>
                         {r.hasAudio ? (
-                          <span className="text-emerald-400 text-[11px]">✓ In DB</span>
+                          <span className="text-emerald-400 text-[11px] flex items-center gap-1">
+                            ✓ In DB {r.audioSizeBytes ? `(${Math.round(r.audioSizeBytes / 1024)} KB)` : ''}
+                          </span>
                         ) : (
                           <span className="text-stone-500 text-[11px]">No audio recorded</span>
                         )}
                       </div>
 
                       {r.hasAudio ? (
-                        <audio
-                          controls
-                          className="w-full h-8 rounded-lg accent-orange-500 mt-1"
-                          src={r.audioUrl}
-                          preload="metadata"
-                        />
+                        <div className="space-y-1.5 mt-1">
+                          <audio
+                            controls
+                            className="w-full h-8 rounded-lg accent-orange-500"
+                            src={r.audioUrl}
+                            preload="metadata"
+                          />
+                          <div className="flex justify-between items-center text-[10px] text-stone-500 px-1">
+                            <span>Recorded Clip: ~{r.clipDurationSeconds || 60}s</span>
+                            <a
+                              href={r.audioUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              download={`bapat-audio-${r._id}.webm`}
+                              className="text-orange-400 hover:text-orange-300 hover:underline flex items-center gap-0.5">
+                              ⬇ Download Clip
+                            </a>
+                          </div>
+                        </div>
                       ) : (
                         <div className="bg-stone-950 text-stone-500 text-xs p-2 rounded-lg text-center">
                           Clip not available for this record

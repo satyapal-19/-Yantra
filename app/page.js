@@ -233,6 +233,7 @@ const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, r
   const chunksRef         = useRef([]);
   const secondReadingsRef = useRef([]);
   const violationSecondsRef = useRef(0);    // Ref for async access in finishRecording
+  const elapsedRef        = useRef(0);      // Ref for async access to recorded clip duration
   const streamRef         = useRef(null);   // Active media stream track manager
 
   const limit = getLegalLimit(zone, new Date());
@@ -240,6 +241,9 @@ const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, r
   const finishRecording = useCallback((stream) => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
+        if (typeof mediaRecorderRef.current.requestData === 'function') {
+          mediaRecorderRef.current.requestData();
+        }
         mediaRecorderRef.current.stop();
       } catch (e) {
         console.warn('Error stopping MediaRecorder:', e);
@@ -296,6 +300,7 @@ const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, r
           avgDecibel: finalLeq,
           peakDecibel: finalStats.peak || finalLeq,
           violationDurationSeconds: violationSecondsRef.current,
+          clipDurationSeconds: elapsedRef.current || 60,
           zoneCategory: zone,
           latitude,
           longitude,
@@ -507,6 +512,7 @@ const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, r
         // Elapsed counter
         setElapsed(prev => {
           const next = prev + 1;
+          elapsedRef.current = next;
           if (next >= 60) {
             clearInterval(intervalRef.current);
             clearInterval(fastIntervalRef.current);
@@ -558,6 +564,7 @@ const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, r
   const reset = () => {
     setPhase('idle');
     setElapsed(0);
+    elapsedRef.current = 0;
     setLeqDb(0);
     setInstantDb(0);
     setViolationSeconds(0);

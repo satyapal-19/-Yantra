@@ -30,7 +30,7 @@ export async function GET(req) {
 
     const reports = await NoiseReport.find(query)
       .select(
-        '_id avgDecibel peakDecibel violationDurationSeconds severity categoryTag ' +
+        '_id avgDecibel peakDecibel violationDurationSeconds clipDurationSeconds severity categoryTag ' +
         'zoneCategory location isNighttime festivalContext highCourtRelevant ' +
         'audioSnippetUrl audioData verification recordedAt'
       )
@@ -38,24 +38,35 @@ export async function GET(req) {
       .limit(200)
       .lean();
 
-    // Map reports to include audio streaming link and hasAudio flag, avoiding huge base64 payloads in list view
-    const formatted = reports.map(r => ({
-      _id: r._id,
-      avgDecibel: r.avgDecibel,
-      peakDecibel: r.peakDecibel,
-      violationDurationSeconds: r.violationDurationSeconds,
-      severity: r.severity,
-      categoryTag: r.categoryTag,
-      zoneCategory: r.zoneCategory,
-      coordinates: r.location?.coordinates || [],
-      isNighttime: r.isNighttime,
-      festivalContext: r.festivalContext,
-      highCourtRelevant: r.highCourtRelevant,
-      recordedAt: r.recordedAt,
-      verification: r.verification,
-      hasAudio: Boolean(r.audioData || r.audioSnippetUrl),
-      audioUrl: `/api/audio/${r._id}`,
-    }));
+    // Map reports to include audio streaming link, size, and duration
+    const formatted = reports.map(r => {
+      let audioBytes = null;
+      if (r.audioData && typeof r.audioData === 'string') {
+        const markerIdx = r.audioData.indexOf(';base64,');
+        if (markerIdx !== -1) {
+          audioBytes = Math.round((r.audioData.length - markerIdx - 8) * 0.75);
+        }
+      }
+      return {
+        _id: r._id,
+        avgDecibel: r.avgDecibel,
+        peakDecibel: r.peakDecibel,
+        violationDurationSeconds: r.violationDurationSeconds ?? 0,
+        clipDurationSeconds: r.clipDurationSeconds || 60,
+        severity: r.severity,
+        categoryTag: r.categoryTag,
+        zoneCategory: r.zoneCategory,
+        coordinates: r.location?.coordinates || [],
+        isNighttime: r.isNighttime,
+        festivalContext: r.festivalContext,
+        highCourtRelevant: r.highCourtRelevant,
+        recordedAt: r.recordedAt,
+        verification: r.verification,
+        hasAudio: Boolean(r.audioData || r.audioSnippetUrl),
+        audioSizeBytes: audioBytes,
+        audioUrl: `/api/audio/${r._id}`,
+      };
+    });
 
     return NextResponse.json({ success: true, count: formatted.length, reports: formatted });
   } catch (error) {

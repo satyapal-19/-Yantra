@@ -69,6 +69,7 @@ export async function POST(req) {
       avgDecibel: Math.round(avgDecibel),
       peakDecibel: Math.round(peakDecibel),
       violationDurationSeconds,
+      clipDurationSeconds: Math.min(60, Math.max(1, parseInt(body.clipDurationSeconds) || 60)),
       severity,
       categoryTag: suggestedCategory || 'unspecified',
       bassRatio: bassRatio || null,
