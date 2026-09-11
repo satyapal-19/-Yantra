@@ -22,27 +22,26 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: 'No audio file provided' }, { status: 400 });
     }
 
-    // Validate size: reject files > 2MB (60s Opus should be ~120-150 KB)
-    if (file.size > 2 * 1024 * 1024) {
-      return NextResponse.json({ success: false, error: 'Audio file too large' }, { status: 413 });
+    // Validate size: reject files > 4MB (60s Opus is typically ~120-180 KB)
+    if (file.size > 4 * 1024 * 1024) {
+      return NextResponse.json({ success: false, error: 'Audio file too large (>4MB)' }, { status: 413 });
     }
 
-    // ── Vercel Blob Integration (uncomment when BLOB_READ_WRITE_TOKEN is set) ──
-    // const { put } = await import('@vercel/blob');
-    // const blob = await put(`snippets/${Date.now()}.webm`, file, {
-    //   access: 'public',
-    //   contentType: 'audio/webm',
-    // });
-    // return NextResponse.json({ success: true, url: blob.url });
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const mimeType = file.type || 'audio/webm';
+    const base64 = buffer.toString('base64');
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    // ── Placeholder response until Blob storage is configured ──
     return NextResponse.json({
       success: true,
-      url: null, // Reports will be saved without audio URL until storage is configured
-      message: 'Audio storage not yet configured — report saved without audio proof',
+      url: dataUrl,
+      audioData: dataUrl,
+      sizeBytes: buffer.length,
+      mimeType,
     });
   } catch (error) {
     console.error('[POST /api/upload-audio]', error.message);
-    return NextResponse.json({ success: false, error: 'Upload failed' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Upload failed: ' + error.message }, { status: 500 });
   }
 }

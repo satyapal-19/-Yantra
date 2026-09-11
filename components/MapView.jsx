@@ -23,10 +23,10 @@ function makePopupHtml(beacon) {
   const cat = beacon.categoryTag === 'dj_system' ? '🔊 तीव्र ध्वनी प्रणाली'
     : beacon.categoryTag === 'dhol_tasha' ? '🥁 वाद्य ध्वनी' : '❓ अनिश्चित';
   const verified = beacon.verification?.status === 'verified'
-    ? '<span style="color:#16a34a;font-weight:bold">✅ समुदायाने पुष्टी केली</span>'
+    ? '<span style="color:#16a34a;font-weight:bold">✅ प्रमाणित (Admin Verified)</span>'
     : beacon.verification?.status === 'rejected'
-    ? '<span style="color:#6b7280">❌ खोटी तक्रार</span>'
-    : '<span style="color:#d97706">⏳ तपासणी प्रतीक्षेत</span>';
+    ? '<span style="color:#6b7280">❌ फेटाळलेले (Rejected)</span>'
+    : '<span style="color:#d97706">⏳ प्रशासकीय पडताळणी प्रतीक्षेत (Pending Review)</span>';
 
   return `
     <div style="font-family:'Noto Sans Devanagari',sans-serif;min-width:220px;padding:4px">

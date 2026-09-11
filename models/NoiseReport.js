@@ -57,19 +57,23 @@ const NoiseReportSchema = new mongoose.Schema({
     },
   },
 
-  // Audio proof (10-15s peak snippet stored in Vercel Blob or external storage)
+  // Audio proof stored directly in MongoDB (base64 Data URL) and/or streaming URL
+  audioData: { type: String, default: null },
   audioSnippetUrl: { type: String, default: null },
 
-  // Community verification
+  // Admin verification
   verification: {
     status: {
       type: String,
       enum: ['pending', 'verified', 'rejected'],
       default: 'pending',
     },
+    verifiedBy: { type: String, default: null }, // e.g. 'admin'
+    verifiedAt: { type: Date, default: null },
+    adminNotes: { type: String, default: null },
+    // Kept for backward compatibility with existing records
     confirmVotes: { type: Number, default: 0 },
     falsePositiveVotes: { type: Number, default: 0 },
-    // SHA-256 hashed session IDs of voters to prevent duplicate votes
     votedSessionHashes: { type: [String], default: [] },
   },
 

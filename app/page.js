@@ -386,41 +386,49 @@ function NoiseRecorder({ onReportSubmitted }) {
       setCategory(finalCat);
       if (meter) meter.destroy();
 
-      if (finalSev === 'normal') {
-        setResult({ severity: 'normal', message: 'सामान्य ध्वनी पातळी — उल्लंघन नाही.' });
-        setPhase('done');
-        if (stream) stream.getTracks().forEach(t => t.stop());
-        return;
-      }
-
       setPhase('submitting');
       try {
-        const pos = await new Promise((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, {
-            enableHighAccuracy: true,
-            timeout: 8000,
-          })
-        );
-
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        let audioUrl = null;
+        let latitude = 19.7515;
+        let longitude = 75.7139;
         try {
-          const fd = new FormData();
-          fd.append('audio', blob, 'snippet.webm');
-          const upRes = await fetch('/api/upload-audio', { method: 'POST', body: fd });
-          if (upRes.ok) { const j = await upRes.json(); audioUrl = j.url; }
-        } catch (_) { /* audio upload is optional */ }
+          const pos = await new Promise((res, rej) =>
+            navigator.geolocation.getCurrentPosition(res, rej, {
+              enableHighAccuracy: true,
+              timeout: 6000,
+            })
+          );
+          latitude = pos.coords.latitude;
+          longitude = pos.coords.longitude;
+        } catch (geoErr) {
+          console.warn('Geolocation unavailable, using default coordinates:', geoErr);
+        }
+
+        let audioUrl = null;
+        if (chunksRef.current && chunksRef.current.length > 0) {
+          try {
+            const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+            const fd = new FormData();
+            fd.append('audio', blob, 'clip.webm');
+            const upRes = await fetch('/api/upload-audio', { method: 'POST', body: fd });
+            if (upRes.ok) {
+              const j = await upRes.json();
+              audioUrl = j.url;
+            }
+          } catch (upErr) {
+            console.error('Audio upload error:', upErr);
+          }
+        }
 
         const body = {
           anonymousSessionId: getOrCreateSessionId(),
-          // Report Leq (legally correct) as avgDecibel, L10 as peakDecibel
           avgDecibel: finalLeq,
           peakDecibel: finalStats.peak || finalLeq,
           violationDurationSeconds: violationSecondsRef.current,
           zoneCategory: zone,
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
+          latitude,
+          longitude,
           audioSnippetUrl: audioUrl,
+          audioData: audioUrl,
           bassRatio: secondReadingsRef.current[0]?.bassRatio || null,
           suggestedCategory: finalCat,
         };
@@ -435,6 +443,12 @@ function NoiseRecorder({ onReportSubmitted }) {
         if (data.success) {
           setResult({
             ...data,
+            severity: finalSev,
+            message: finalSev === 'normal'
+              ? 'सामान्य ध्वनी पातळी — मोजमाप व ऑडिओ डेटाबेसमध्ये जतन केले.'
+              : finalSev === 'severe'
+              ? 'गंभीर ध्वनी उल्लंघन नोंदवले!'
+              : 'ध्वनी चेतावणी नोंदवली!',
             leq: finalLeq,
             l10: finalStats.L10,
             l90: finalStats.L90,
@@ -449,11 +463,12 @@ function NoiseRecorder({ onReportSubmitted }) {
           setPhase('error');
         }
       } catch (err) {
-        setResult({ message: 'स्थान मिळवणे शक्य नाही किंवा नेटवर्क त्रुटी.' });
+        console.error(err);
+        setResult({ message: 'डेटाबेसमध्ये जतन करताना त्रुटी आली.' });
         setPhase('error');
       }
       if (stream) stream.getTracks().forEach(t => t.stop());
-    }, 1200);
+    }, 600);
   }, [zone, onReportSubmitted]);
 
   const reset = () => {
@@ -754,240 +769,12 @@ function NoiseRecorder({ onReportSubmitted }) {
   );
 }
 
-// ── Verify Feed Component ─────────────────────────────────────────────────────
-function VerifyFeed() {
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [voting, setVoting] = useState({});
-  const [voteFeedback, setVoteFeedback] = useState({});
-  const [played, setPlayed] = useState({});
-  const [locationError, setLocationError] = useState(false);
-
-  const loadReports = useCallback(async () => {
-    setLoading(true);
-    try {
-      let url = '/api/verify?radius=25000';
-      if (navigator.geolocation) {
-        try {
-          const pos = await new Promise((res, rej) =>
-            navigator.geolocation.getCurrentPosition(res, rej, { timeout: 4000 })
-          );
-          url = `/api/verify?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&radius=25000`;
-        } catch { setLocationError(true); }
-      }
-      const r = await fetch(url);
-      const d = await r.json();
-      if (d.success) setReports(d.reports || []);
-    } catch (e) { console.error(e); }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { loadReports(); }, [loadReports]);
-
-  const vote = async (reportId, v) => {
-    setVoting(prev => ({ ...prev, [reportId]: v }));
-    setVoteFeedback(prev => ({ ...prev, [reportId]: null }));
-    try {
-      const res = await fetch('/api/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reportId, vote: v, voterSessionId: getOrCreateSessionId() }),
-      });
-      const d = await res.json();
-      if (d.success) {
-        setReports(prev => prev.map(r =>
-          r._id === reportId ? {
-            ...r,
-            verification: {
-              ...r.verification,
-              status: d.newStatus,
-              confirmVotes: d.confirmVotes,
-              falsePositiveVotes: d.falsePositiveVotes,
-            }
-          } : r
-        ));
-        setVoteFeedback(prev => ({
-          ...prev,
-          [reportId]: { type: 'success', msg: 'आपले मत यशस्वीरित्या नोंदवले गेले आहे! (Vote recorded)' }
-        }));
-      } else {
-        const errorMsg = d.error?.includes('already voted') || d.error?.includes('own submission')
-          ? 'तुम्ही आधीच मत नोंदवले आहे किंवा हा तुमचा स्वतःचा अहवाल आहे. (Already voted or own report)'
-          : (d.error || 'मत नोंदवण्यात त्रुटी आली. कृपया पुन्हा प्रयत्न करा.');
-        setVoteFeedback(prev => ({
-          ...prev,
-          [reportId]: { type: 'error', msg: errorMsg }
-        }));
-      }
-    } catch (err) {
-      console.error(err);
-      setVoteFeedback(prev => ({
-        ...prev,
-        [reportId]: { type: 'error', msg: 'इंटरनेट किंवा सर्व्हर त्रुटी. कृपया पुन्हा प्रयत्न करा.' }
-      }));
-    } finally {
-      setTimeout(() => setVoting(prev => { const n = {...prev}; delete n[reportId]; return n; }), 1000);
-    }
-  };
-
-  return (
-    <div id="verify" className="py-20 px-4 bg-gradient-to-b from-orange-50 to-amber-100">
-      <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-10">
-          <div className="lotus-divider mb-4">
-            <span className="font-devanagari text-3xl font-bold text-orange-700 mx-4">तपासणी करा</span>
-          </div>
-          <p className="text-stone-500 font-display italic">Community Verification — Listen & Vote</p>
-          <p className="font-devanagari text-sm text-orange-600 mt-2">
-            खालील ऑडिओ ऐका आणि ध्वनी मर्यादेचे उल्लंघन आहे का ते सांगा
-          </p>
-        </div>
-
-        {locationError && (
-          <div className="bg-amber-100 border border-amber-300 rounded-xl p-3 mb-4 text-sm text-amber-800 font-devanagari">
-            📍 स्थान उपलब्ध नाही — महाराष्ट्रातील सर्व अहवाल दाखवत आहे.
-          </div>
-        )}
-
-        {loading && (
-          <div className="text-center py-10">
-            <div className="animate-spin rounded-full h-10 w-10 border-4 border-orange-500 border-t-transparent mx-auto mb-3" />
-            <p className="font-devanagari text-orange-600">अहवाल लोड होत आहेत...</p>
-          </div>
-        )}
-
-        {!loading && reports.length === 0 && (
-          <div className="glass-card rounded-2xl p-10 text-center border border-orange-200">
-            <div className="text-5xl mb-4">🌸</div>
-            <p className="font-devanagari text-xl text-orange-700">सध्या तपासणीसाठी कोणतेही अहवाल नाहीत.</p>
-            <p className="text-stone-400 text-sm mt-2">No pending reports in your area right now.</p>
-            <button onClick={loadReports} className="btn-primary text-white px-6 py-2 rounded-full text-sm mt-4">
-              पुन्हा तपासा
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {reports.map((report, i) => {
-            const sev = SEVERITY_LABELS[report.severity] || SEVERITY_LABELS.normal;
-            const isVoting = voting[report._id];
-            const resolved = report.verification?.status && report.verification?.status !== 'pending';
-            return (
-              <div key={report._id}
-                className="glass-card rounded-2xl p-5 border border-orange-200 shadow-md"
-                style={{ animationDelay: `${i * 0.1}s` }}>
-                {/* Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full mr-2
-                      ${report.severity === 'severe' ? 'badge-severe' : report.severity === 'warning' ? 'badge-warning' : 'badge-normal'}`}>
-                      {sev.mr}
-                    </span>
-                    {report.categoryTag !== 'unspecified' && (
-                      <span className="inline-block text-xs px-3 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
-                        {report.categoryTag === 'dj_system' ? '🔊 तीव्र ध्वनी प्रणाली' : '🥁 वाद्य ध्वनी'}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-stone-400">
-                    {new Date(report.recordedAt).toLocaleTimeString('mr-IN', { hour: '2-digit', minute: '2-digit' })}
-                    {report.isNighttime && <span className="ml-1 text-indigo-500">🌙</span>}
-                  </span>
-                </div>
-
-                {/* Metrics */}
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  {[
-                    { label: 'सरासरी dB', value: `${report.avgDecibel} dB`, color: dbColor(report.avgDecibel) },
-                    { label: 'शिखर dB', value: `${report.peakDecibel} dB`, color: dbColor(report.peakDecibel) },
-                    { label: 'उल्लंघन', value: `${report.violationDurationSeconds}s`, color: sev.color },
-                  ].map(m => (
-                    <div key={m.label} className="bg-white rounded-xl p-3 text-center border border-orange-100">
-                      <div className="text-lg font-bold" style={{ color: m.color }}>{m.value}</div>
-                      <div className="text-xs text-stone-400 font-devanagari">{m.label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Festival context */}
-                {report.festivalContext && (
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 mb-3 text-xs text-purple-700 font-devanagari">
-                    🎊 {report.festivalContext} उत्सव काळातील उल्लंघन
-                  </div>
-                )}
-
-                {/* Audio player */}
-                {report.audioSnippetUrl && (
-                  <div className="mb-4">
-                    <audio controls className="w-full h-8 rounded-lg accent-orange-500"
-                      src={report.audioSnippetUrl}
-                      onPlay={() => setPlayed(p => ({ ...p, [report._id]: true }))} />
-                    {!played[report._id] && (
-                      <p className="text-xs text-orange-500 mt-1 font-devanagari">⬆ ऑडिओ ऐकल्यानंतर मत द्या</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Vote buttons */}
-                {resolved ? (
-                  <div className={`text-center py-2 rounded-xl text-sm font-bold font-devanagari
-                    ${report.verification.status === 'verified' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                    {report.verification.status === 'verified' ? '✅ समुदायाने पुष्टी केली' : '❌ खोटी तक्रार म्हणून चिन्हांकित'}
-                  </div>
-                ) : (
-                  <div className="flex gap-3">
-                    <button onClick={() => vote(report._id, 'confirm')}
-                      disabled={!!isVoting}
-                      className="flex-1 bg-red-500 hover:bg-red-600 text-white font-devanagari font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isVoting === 'confirm' ? '✓ मत नोंदवत आहे...' : <><span>🔴</span> होय, उल्लंघन आहे</>}
-                    </button>
-                    <button onClick={() => vote(report._id, 'false_positive')}
-                      disabled={!!isVoting}
-                      className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-devanagari font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isVoting === 'false_positive' ? '✓ नोंदवत आहे...' : <><span>✅</span> नाही, सामान्य आवाज</>}
-                    </button>
-                  </div>
-                )}
-
-                {/* Vote Feedback Alert */}
-                {voteFeedback[report._id] && (
-                  <div className={`mt-3 p-2.5 rounded-xl text-xs font-devanagari text-center font-medium ${
-                    voteFeedback[report._id].type === 'success'
-                      ? 'bg-green-50 text-green-800 border border-green-200'
-                      : 'bg-red-50 text-red-800 border border-red-200'
-                  }`}>
-                    {voteFeedback[report._id].msg}
-                  </div>
-                )}
-
-                {/* Vote counts */}
-                <div className="flex justify-end gap-3 mt-2 text-xs text-stone-400">
-                  <span>✅ {report.verification?.confirmVotes || 0} पुष्टी</span>
-                  <span>❌ {report.verification?.falsePositiveVotes || 0} खोटे</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {reports.length > 0 && (
-          <div className="text-center mt-6">
-            <button onClick={loadReports} className="btn-primary text-white font-devanagari px-8 py-3 rounded-full font-semibold">
-              नवीन अहवाल लोड करा
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Stats Bar ─────────────────────────────────────────────────────────────────
 function StatsBar({ stats }) {
   const items = [
     { icon: '🔴', value: stats.severe, label: 'गंभीर उल्लंघने', sub: 'Severe Violations' },
     { icon: '🟡', value: stats.warning, label: 'चेतावण्या', sub: 'Warnings' },
-    { icon: '✅', value: stats.verified, label: 'पुष्टी झालेले', sub: 'Community Verified' },
+    { icon: '✅', value: stats.verified, label: 'प्रमाणित नोंदी', sub: 'Admin Verified' },
     { icon: '📍', value: stats.total, label: 'एकूण नोंदी', sub: 'Total Reports' },
   ];
   return (
@@ -1035,7 +822,7 @@ export default function Home() {
             <button onClick={() => scrollTo('hero')} className="text-stone-600 hover:text-orange-600 transition-colors">मुखपृष्ठ</button>
             <button onClick={() => scrollTo('map')} className="text-stone-600 hover:text-orange-600 transition-colors">नकाशा</button>
             <button onClick={() => scrollTo('record')} className="text-stone-600 hover:text-orange-600 transition-colors">नोंद करा</button>
-            <button onClick={() => scrollTo('verify')} className="text-stone-600 hover:text-orange-600 transition-colors">तपासा</button>
+            <a href="/admin" className="text-stone-500 hover:text-orange-600 transition-colors text-xs border border-orange-200 px-3 py-1 rounded-full">🛡️ Admin</a>
           </div>
           <button onClick={() => scrollTo('record')}
             className="btn-primary text-white font-devanagari px-4 py-2 rounded-full text-sm font-semibold">
@@ -1154,9 +941,6 @@ export default function Home() {
 
       {/* ── RECORDER SECTION ── */}
       <NoiseRecorder onReportSubmitted={refreshMap} />
-
-      {/* ── VERIFY FEED ── */}
-      <VerifyFeed />
 
       {/* ── INFO SECTION ── */}
       <section className="py-16 px-4 bg-gradient-to-b from-amber-100 to-orange-50">

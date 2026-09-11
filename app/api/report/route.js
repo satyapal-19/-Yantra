@@ -39,14 +39,8 @@ export async function POST(req) {
       );
     }
 
-    // --- Discard 'normal' reports (< 20s violation) — anti-spam ---
+    // --- Severity classification ---
     const severity = classifySeverity(violationDurationSeconds);
-    if (severity === 'normal') {
-      return NextResponse.json(
-        { success: false, error: 'Noise level did not sustain long enough to qualify as a violation.' },
-        { status: 200 } // Not an error, just insufficient
-      );
-    }
 
     // --- Hash the session ID for privacy (SHA-256 + server salt) ---
     const salt = process.env.SESSION_SALT || 'dhwani-default-salt';
@@ -55,11 +49,9 @@ export async function POST(req) {
       .digest('hex');
 
     // --- Obfuscate location (50m random offset) — raw coords discarded ---
-    const { latitude: obsLat, longitude: obsLng } = obfuscateCoordinates(
-      parseFloat(latitude),
-      parseFloat(longitude),
-      50
-    );
+    const rawLat = latitude != null ? parseFloat(latitude) : 19.7515;
+    const rawLng = longitude != null ? parseFloat(longitude) : 75.7139;
+    const { latitude: obsLat, longitude: obsLng } = obfuscateCoordinates(rawLat, rawLng, 50);
 
     // --- Get legal limit and violation context ---
     const zone = zoneCategory || 'residential';
@@ -67,7 +59,11 @@ export async function POST(req) {
     const legalLimit = getLegalLimit(zone, now);
     const context = getViolationContext(avgDecibel, zone, now);
 
-    // --- Create the report ---
+    // Store base64 data URI in audioData if present
+    const rawAudio = body.audioData || audioSnippetUrl || null;
+    const isDataUri = typeof rawAudio === 'string' && rawAudio.startsWith('data:');
+
+    // --- Create the report in MongoDB ---
     const newReport = await NoiseReport.create({
       anonymousSessionId: hashedSessionId,
       avgDecibel: Math.round(avgDecibel),
@@ -86,8 +82,18 @@ export async function POST(req) {
         type: 'Point',
         coordinates: [obsLng, obsLat], // GeoJSON: [lng, lat]
       },
-      audioSnippetUrl: audioSnippetUrl || null,
+      audioData: isDataUri ? rawAudio : (body.audioData || null),
+      audioSnippetUrl: null, // will be set to /api/audio/<id> below
+      verification: {
+        status: 'pending',
+        verifiedBy: null,
+        verifiedAt: null,
+      },
     });
+
+    // Set streaming URL pointing to internal audio streaming endpoint
+    newReport.audioSnippetUrl = `/api/audio/${newReport._id}`;
+    await newReport.save();
 
     return NextResponse.json(
       {
