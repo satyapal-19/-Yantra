@@ -847,7 +847,7 @@ const NoiseRecorder = forwardRef(function NoiseRecorder({ onReportSubmitted }, r
                          result.finalCategory === 'dhol_tasha' ? '🥁 वाद्य ध्वनी' : '❓ अनिश्चित'}
                       </span>
                     </div>
-                    {result.context?.festivalContext && (
+                    {result.context?.festivalContext && !/ganesh|गणेश/i.test(result.context.festivalContext) && (
                       <div className="flex justify-between"><span className="text-stone-500">उत्सव संदर्भ</span><span className="font-bold text-purple-700">{result.context.festivalContext}</span></div>
                     )}
                     {result.context?.highCourtRelevant && (

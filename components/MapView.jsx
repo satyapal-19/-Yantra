@@ -46,7 +46,7 @@ function makePopupHtml(beacon) {
       <div style="font-size:12px;color:#57534e;margin-bottom:4px">🎵 ${cat}</div>
       <div style="font-size:12px;color:#57534e;margin-bottom:4px">⏱ उल्लंघन: ${beacon.violationDurationSeconds}s / 60s</div>
       ${beacon.isNighttime ? '<div style="font-size:12px;color:#6d28d9;margin-bottom:4px">🌙 रात्रीचे उल्लंघन</div>' : ''}
-      ${beacon.festivalContext ? `<div style="font-size:12px;color:#7c3aed;margin-bottom:4px">🎊 ${beacon.festivalContext}</div>` : ''}
+      ${beacon.festivalContext && !/ganesh|गणेश/i.test(beacon.festivalContext) ? `<div style="font-size:12px;color:#7c3aed;margin-bottom:4px">🎊 ${beacon.festivalContext}</div>` : ''}
       <div style="font-size:11px;margin-bottom:4px">${verified}</div>
       ${beacon.highCourtRelevant ? '<div style="font-size:10px;color:#dc2626;background:#fef2f2;border-radius:4px;padding:3px 6px">⚖️ Bombay HC / NGT संबंधित</div>' : ''}
       ${beacon.audioSnippetUrl ? `

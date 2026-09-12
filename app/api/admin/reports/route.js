@@ -1,12 +1,31 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import dbConnect from '@/lib/dbConnect';
 import NoiseReport from '@/models/NoiseReport';
 
 function checkAuth(req) {
-  const adminSecret = process.env.ADMIN_SECRET || 'bapat-admin-2026';
-  const { searchParams } = new URL(req.url);
-  const key = req.headers.get('x-admin-key') || searchParams.get('key');
-  return key === adminSecret;
+  const adminSecret = process.env.ADMIN_SECRET;
+  // Fail-closed: reject if ADMIN_SECRET is not configured in environment
+  if (!adminSecret || typeof adminSecret !== 'string' || adminSecret.trim() === '') {
+    return false;
+  }
+
+  // Strictly require x-admin-key header (never via URL query params to avoid log leakage)
+  const key = req.headers.get('x-admin-key');
+  if (!key || typeof key !== 'string') {
+    return false;
+  }
+
+  try {
+    const keyBuf = Buffer.from(key);
+    const secretBuf = Buffer.from(adminSecret);
+    if (keyBuf.length !== secretBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(keyBuf, secretBuf);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -58,7 +77,7 @@ export async function GET(req) {
         zoneCategory: r.zoneCategory,
         coordinates: r.location?.coordinates || [],
         isNighttime: r.isNighttime,
-        festivalContext: r.festivalContext,
+        festivalContext: (r.festivalContext && !/ganesh|गणेश/i.test(r.festivalContext)) ? r.festivalContext : null,
         highCourtRelevant: r.highCourtRelevant,
         recordedAt: r.recordedAt,
         verification: r.verification,

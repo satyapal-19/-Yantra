@@ -41,7 +41,7 @@ const NoiseReportSchema = new mongoose.Schema({
   // Context at time of recording
   recordedAt: { type: Date, required: true }, // exact IST timestamp
   isNighttime: { type: Boolean, default: false },
-  festivalContext: { type: String, default: null }, // e.g. "Ganesh Utsav Visarjan"
+  festivalContext: { type: String, default: null }, // e.g. "Public Festival / Event"
   highCourtRelevant: { type: Boolean, default: false },
 
   // Obfuscated GeoJSON location (50m random jitter applied — raw GPS never stored)

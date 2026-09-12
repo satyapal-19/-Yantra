@@ -56,8 +56,12 @@ export async function GET(req) {
       )
       .limit(200)
       .lean();
+    const sanitizedBeacons = beacons.map(b => ({
+      ...b,
+      festivalContext: (b.festivalContext && !/ganesh|गणेश/i.test(b.festivalContext)) ? b.festivalContext : null,
+    }));
 
-    return NextResponse.json({ success: true, count: beacons.length, beacons });
+    return NextResponse.json({ success: true, count: sanitizedBeacons.length, beacons: sanitizedBeacons });
   } catch (error) {
     console.error('[GET /api/beacons]', error.message);
     return NextResponse.json(

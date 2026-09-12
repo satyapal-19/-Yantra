@@ -20,7 +20,11 @@ export default function AdminPage() {
     if (!key) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/reports?key=${encodeURIComponent(key)}&status=${status}`);
+      const res = await fetch(`/api/admin/reports?status=${encodeURIComponent(status)}`, {
+        headers: {
+          'x-admin-key': key,
+        },
+      });
       const data = await res.json();
       if (data.success) {
         setReports(data.reports);
@@ -110,7 +114,7 @@ export default function AdminPage() {
                 className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-sm text-stone-100 focus:outline-none focus:border-orange-500"
                 required
               />
-              <p className="text-[11px] text-stone-500 mt-1">Default key is configured in .env.local</p>
+              <p className="text-[11px] text-stone-500 mt-1">Stored securely in ADMIN_SECRET environment variable</p>
             </div>
 
             <button
@@ -261,7 +265,7 @@ export default function AdminPage() {
                         <span>Time:</span>
                         <span className="text-stone-300">{new Date(r.recordedAt).toLocaleString('en-IN')}</span>
                       </div>
-                      {r.festivalContext && (
+                      {r.festivalContext && !/ganesh|गणेश/i.test(r.festivalContext) && (
                         <div className="flex justify-between text-purple-400">
                           <span>Context:</span>
                           <span>{r.festivalContext}</span>
